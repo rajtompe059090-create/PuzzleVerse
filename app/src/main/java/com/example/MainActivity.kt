@@ -31,4 +31,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        val app = application as? PuzzleApplication
+        app?.soundHapticManager?.startBackgroundMusic()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        val app = application as? PuzzleApplication
+        app?.soundHapticManager?.stopBackgroundMusic()
+    }
 }

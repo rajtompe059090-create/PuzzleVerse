@@ -69,7 +69,7 @@ fun LevelMapScreen(
     val gameTitle = when (gameId) {
         Constants.GAME_ARROW_FLOW -> "Arrow Flow"
         Constants.GAME_BLOCK_MERGE -> "Block Merge"
-        Constants.GAME_COLOR_PATH -> "Color Path"
+        Constants.GAME_HEART_MAZE -> "Heart Maze"
         else -> "Tile Match"
     }
 

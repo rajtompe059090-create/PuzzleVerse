@@ -1,14 +1,20 @@
 package com.example.games.tilematch
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import android.app.Activity
+import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -24,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
@@ -40,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -53,12 +61,10 @@ import com.example.core.Constants
 import com.example.games.common.LevelCompleteDialog
 import com.example.ui.components.GlassCard
 import com.example.ui.components.Neon3DButton
-import com.example.ui.theme.DarkBgCard
 import com.example.ui.theme.DarkBgPrimary
 import com.example.ui.theme.ElectricBlue
 import com.example.ui.theme.NeonCoral
 import com.example.ui.theme.NeonEmerald
-import com.example.ui.theme.NeonPink
 import com.example.ui.theme.NeonPurple
 import com.example.ui.theme.RewardGold
 import com.example.ui.theme.RewardGoldLight
@@ -74,6 +80,7 @@ fun TileMatchGameScreen(
     onNextLevel: (Int) -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val app = context.applicationContext as PuzzleApplication
     val soundHaptic = app.soundHapticManager
     val repository = app.repository
@@ -89,11 +96,24 @@ fun TileMatchGameScreen(
     var remainingTimeSeconds by remember(levelNumber) {
         mutableIntStateOf(gameState.timerSeconds)
     }
+    var hintsUsed by remember(levelNumber) { mutableIntStateOf(0) }
+    var hintedTypeId by remember { mutableStateOf<Int?>(null) }
 
     var isWon by remember { mutableStateOf(false) }
     var isFailed by remember { mutableStateOf(false) }
     var isRewardClaimed by remember { mutableStateOf(false) }
     var isClaimingReward by remember { mutableStateOf(false) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "TilePulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(550, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "TilePulseScale"
+    )
 
     // Countdown timer for timed levels
     LaunchedEffect(gameState.timerSeconds, isWon, isFailed) {
@@ -112,15 +132,15 @@ fun TileMatchGameScreen(
     fun onTileClicked(tile: GameTile) {
         if (isWon || isFailed || tile.isRemoved || gameState.dock.size >= 7) return
 
-        soundHaptic.playClick()
+        soundHaptic.playTileSelect()
         movesCount++
+        if (hintedTypeId == tile.type.id) hintedTypeId = null
 
         // Remove tile from board and add to dock
         val updatedTiles = gameState.tiles.map {
             if (it.id == tile.id) it.copy(isRemoved = true) else it
         }
 
-        // Insert into dock, grouping identical types together
         val updatedDock = gameState.dock.toMutableList()
         val insertIndex = updatedDock.indexOfLast { it.type.id == tile.type.id }.let {
             if (it >= 0) it + 1 else updatedDock.size
@@ -130,7 +150,7 @@ fun TileMatchGameScreen(
         // Check for 3 matching tiles in dock
         val matchCount = updatedDock.count { it.type.id == tile.type.id }
         if (matchCount == 3) {
-            soundHaptic.playMoveSuccess()
+            soundHaptic.playTileMatch()
             score += 150
             updatedDock.removeAll { it.type.id == tile.type.id }
         }
@@ -152,6 +172,34 @@ fun TileMatchGameScreen(
         } else if (failed) {
             soundHaptic.playWrongMove()
             isFailed = true
+        }
+    }
+
+    // Hint Logic: 2 free hints, 3+ requires Interstitial Ad
+    fun requestHint() {
+        if (isWon || isFailed) return
+        val availableTiles = gameState.tiles.filter { !it.isRemoved }
+        // Find a type with at least one matching in dock, or any triplet available
+        val inDockType = gameState.dock.firstOrNull()?.type?.id
+        val targetType = inDockType ?: availableTiles.groupBy { it.type.id }.maxByOrNull { it.value.size }?.key
+
+        if (targetType == null) {
+            Toast.makeText(context, "No moves remaining!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (hintsUsed < Constants.FREE_HINTS_PER_LEVEL) {
+            hintsUsed++
+            hintedTypeId = targetType
+            soundHaptic.playHint()
+            Toast.makeText(context, "Free Hint: Pick highlighted jewel! (${Constants.FREE_HINTS_PER_LEVEL - hintsUsed} left)", Toast.LENGTH_SHORT).show()
+        } else {
+            adMobManager.showInterstitial(activity) {
+                hintsUsed++
+                hintedTypeId = targetType
+                soundHaptic.playHint()
+                Toast.makeText(context, "Hint Unlocked via Ad!", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -184,7 +232,7 @@ fun TileMatchGameScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "TILE MATCH",
-                        color = NeonPink,
+                        color = ElectricBlue,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp
@@ -197,19 +245,30 @@ fun TileMatchGameScreen(
                     )
                 }
 
-                IconButton(onClick = {
-                    gameState = TileMatchHelper.generateLevel(levelNumber)
-                    score = 0
-                    movesCount = 0
-                    remainingTimeSeconds = gameState.timerSeconds
-                    isWon = false
-                    isFailed = false
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Restart",
-                        tint = TextPrimary
-                    )
+                Row {
+                    IconButton(onClick = { requestHint() }) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = "Hint",
+                            tint = if (hintsUsed < Constants.FREE_HINTS_PER_LEVEL) RewardGold else ElectricBlue
+                        )
+                    }
+
+                    IconButton(onClick = {
+                        gameState = TileMatchHelper.generateLevel(levelNumber)
+                        score = 0
+                        movesCount = 0
+                        remainingTimeSeconds = gameState.timerSeconds
+                        hintedTypeId = null
+                        isWon = false
+                        isFailed = false
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = TextPrimary
+                        )
+                    }
                 }
             }
 
@@ -220,15 +279,12 @@ fun TileMatchGameScreen(
                     .padding(horizontal = 20.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 12.dp
-                ) {
+                GlassCard(modifier = Modifier.weight(1f), cornerRadius = 12.dp) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Remaining", color = TextSecondary, fontSize = 11.sp)
                         Text(
                             text = "${gameState.remainingTilesOnBoard}",
-                            color = ElectricBlue,
+                            color = NeonEmerald,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -237,87 +293,116 @@ fun TileMatchGameScreen(
 
                 Spacer(modifier = Modifier.width(10.dp))
 
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 12.dp
-                ) {
+                GlassCard(modifier = Modifier.weight(1f), cornerRadius = 12.dp) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("Score", color = TextSecondary, fontSize = 11.sp)
                         Text(
-                            text = if (gameState.timerSeconds > 0) "Time Left" else "Score",
-                            color = TextSecondary,
-                            fontSize = 11.sp
-                        )
-                        Text(
-                            text = if (gameState.timerSeconds > 0) "${remainingTimeSeconds}s" else "$score",
-                            color = if (remainingTimeSeconds in 1..15) NeonCoral else NeonPurple,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
-                GlassCard(
-                    modifier = Modifier.weight(1f),
-                    cornerRadius = 12.dp
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Reward", color = TextSecondary, fontSize = 11.sp)
-                        Text(
-                            text = "₹${Constants.LEVEL_REWARD_AMOUNT.toInt()}",
+                            text = "$score",
                             color = RewardGoldLight,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                GlassCard(modifier = Modifier.weight(1f), cornerRadius = 12.dp) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = if (gameState.timerSeconds > 0) "Time Left" else "Moves",
+                            color = TextSecondary,
+                            fontSize = 11.sp
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (gameState.timerSeconds > 0) {
+                                Icon(
+                                    imageVector = Icons.Default.Timer,
+                                    contentDescription = null,
+                                    tint = if (remainingTimeSeconds <= 15) NeonCoral else NeonPurple,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "${remainingTimeSeconds}s",
+                                    color = if (remainingTimeSeconds <= 15) NeonCoral else NeonPurple,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                Text(
+                                    text = "$movesCount",
+                                    color = NeonPurple,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Main Board Tiles
+            // Board (Active Jewel Tiles with 3D Bevel)
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .weight(1f)
-                    .padding(horizontal = 16.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val visibleTiles = gameState.tiles.filter { !it.isRemoved }
-
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 48.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(1.dp, Color(0xFF243452), RoundedCornerShape(16.dp))
-                        .padding(12.dp)
+                GlassCard(
+                    modifier = Modifier.fillMaxSize(),
+                    cornerRadius = 24.dp
                 ) {
-                    items(visibleTiles, key = { it.id }) { tile ->
-                        Box(
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .shadow(6.dp, RoundedCornerShape(12.dp))
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(5),
+                        contentPadding = PaddingValues(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(gameState.tiles) { tile ->
+                            if (!tile.isRemoved) {
+                                val isHinted = (hintedTypeId == tile.type.id)
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .scale(if (isHinted) pulseScale else 1f)
+                                        .shadow(if (isHinted) 10.dp else 4.dp, RoundedCornerShape(12.dp), spotColor = tile.type.color)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            Brush.verticalGradient(
+                                                listOf(
+                                                    tile.type.color.copy(alpha = 0.85f),
+                                                    tile.type.color.copy(alpha = 0.45f)
+                                                )
+                                            )
+                                        )
+                                        .border(
+                                            width = if (isHinted) 2.dp else 1.dp,
+                                            color = if (isHinted) RewardGold else Color(0x66FFFFFF),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable { onTileClicked(tile) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = tile.type.icon,
+                                        contentDescription = tile.type.name,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
                                     )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0x11FFFFFF))
                                 )
-                                .border(1.5.dp, tile.type.color.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
-                                .clickable { onTileClicked(tile) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = tile.type.icon,
-                                contentDescription = tile.type.name,
-                                tint = tile.type.color,
-                                modifier = Modifier.size(26.dp)
-                            )
+                            }
                         }
                     }
                 }
@@ -325,62 +410,64 @@ fun TileMatchGameScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Dock Container (Holds up to 7 tiles)
-            Column(
+            // Match Dock Container (Max 7 slots)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .padding(horizontal = 20.dp)
             ) {
-                Text(
-                    text = "MATCHING TRAY (${gameState.dock.size}/7)",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-                )
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF0B111E))
-                        .border(
-                            1.5.dp,
-                            if (gameState.dock.size >= 6) NeonCoral else Color(0xFF1E2E4A),
-                            RoundedCornerShape(16.dp)
-                        )
-                        .padding(horizontal = 8.dp),
-                    contentAlignment = Alignment.CenterStart
+                GlassCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    borderColor = if (gameState.dock.size >= 6) NeonCoral else ElectricBlue,
+                    cornerRadius = 18.dp
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        repeat(7) { index ->
-                            val dockTile = gameState.dock.getOrNull(index)
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (dockTile != null) Color(0xFF19243C) else Color(0xFF101726)
-                                    )
-                                    .border(
-                                        1.dp,
-                                        dockTile?.type?.color ?: Color(0xFF1E2B40),
-                                        RoundedCornerShape(10.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (dockTile != null) {
-                                    Icon(
-                                        imageVector = dockTile.type.icon,
-                                        contentDescription = dockTile.type.name,
-                                        tint = dockTile.type.color,
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                        Text(
+                            text = "HOLDING DOCK (${gameState.dock.size}/7 SLOTS)",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            for (slot in 0 until 7) {
+                                val tileInSlot = gameState.dock.getOrNull(slot)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (tileInSlot != null) tileInSlot.type.color.copy(alpha = 0.85f)
+                                            else Color(0xFF131C2E)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (tileInSlot != null) Color.White else Color(0xFF23304A),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (tileInSlot != null) {
+                                        Icon(
+                                            imageVector = tileInSlot.type.icon,
+                                            contentDescription = tileInSlot.type.name,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -403,31 +490,22 @@ fun TileMatchGameScreen(
                 GlassCard(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
-                        .padding(20.dp),
-                    cornerRadius = 20.dp
+                        .padding(24.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth()
                     ) {
+                        Text("LEVEL FAILED!", color = NeonCoral, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = if (remainingTimeSeconds <= 0 && gameState.timerSeconds > 0) "TIME'S UP!" else "TRAY FULL!",
-                            color = NeonCoral,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = if (remainingTimeSeconds <= 0 && gameState.timerSeconds > 0)
-                                "You ran out of time! Try again."
-                            else
-                                "Your tray filled with 7 tiles without a 3-match! Try again.",
+                            text = if (remainingTimeSeconds <= 0 && gameState.timerSeconds > 0) "Time ran out!" else "Dock is full with no 3-in-a-row!",
                             color = TextSecondary,
-                            fontSize = 14.sp
+                            fontSize = 13.sp
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
                         Neon3DButton(
-                            text = "Try Again",
+                            text = "Try Again ↺",
                             onClick = {
                                 gameState = TileMatchHelper.generateLevel(levelNumber)
                                 score = 0
@@ -453,11 +531,9 @@ fun TileMatchGameScreen(
                 movesUsed = movesCount,
                 timeSeconds = gameState.timerSeconds - remainingTimeSeconds,
                 isClaimingReward = isClaimingReward,
-                onClaimReward = {
+                onClaimNormalReward = {
                     if (isClaimingReward || isRewardClaimed) return@LevelCompleteDialog
                     isClaimingReward = true
-
-                    val activity = context as? android.app.Activity
                     adMobManager.showRewardedAd(
                         activity = activity,
                         onRewardEarned = {
@@ -469,22 +545,47 @@ fun TileMatchGameScreen(
                                     timeSeconds = gameState.timerSeconds - remainingTimeSeconds,
                                     score = score,
                                     stars = 3,
-                                    adWatched = true
+                                    adWatched = true,
+                                    isDoubleReward = false
                                 )
+                                soundHaptic.playReward()
                                 isRewardClaimed = true
                                 isClaimingReward = false
                             }
                         },
-                        onAdClosed = {
-                            isClaimingReward = false
-                        },
+                        onAdClosed = { isClaimingReward = false },
                         onAdUnavailable = {
                             isClaimingReward = false
-                            android.widget.Toast.makeText(
-                                context,
-                                "Rewarded ad is not ready. Please try again.",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Rewarded ad is loading. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                },
+                onClaimDoubleReward = {
+                    if (isClaimingReward || isRewardClaimed) return@LevelCompleteDialog
+                    isClaimingReward = true
+                    adMobManager.showRewardedAd(
+                        activity = activity,
+                        onRewardEarned = {
+                            coroutineScope.launch {
+                                repository.completeLevelAndClaimReward(
+                                    gameId = Constants.GAME_TILE_MATCH,
+                                    levelNumber = levelNumber,
+                                    movesUsed = movesCount,
+                                    timeSeconds = gameState.timerSeconds - remainingTimeSeconds,
+                                    score = score * 2,
+                                    stars = 3,
+                                    adWatched = true,
+                                    isDoubleReward = true
+                                )
+                                soundHaptic.playReward()
+                                isRewardClaimed = true
+                                isClaimingReward = false
+                            }
+                        },
+                        onAdClosed = { isClaimingReward = false },
+                        onAdUnavailable = {
+                            isClaimingReward = false
+                            Toast.makeText(context, "Rewarded ad is loading. Please try again.", Toast.LENGTH_SHORT).show()
                         }
                     )
                 },

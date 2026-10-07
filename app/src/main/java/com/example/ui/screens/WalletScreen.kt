@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,13 +23,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MonetizationOn
-import androidx.compose.material.icons.filled.Payment
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -58,14 +58,11 @@ import com.example.data.entity.WalletTransaction
 import com.example.data.entity.Withdrawal
 import com.example.ui.components.GlassCard
 import com.example.ui.components.Neon3DButton
-import com.example.ui.theme.DarkBgCard
 import com.example.ui.theme.DarkBgPrimary
 import com.example.ui.theme.ElectricBlue
-import com.example.ui.theme.GlassBorderCyan
 import com.example.ui.theme.GlassBorderGold
 import com.example.ui.theme.NeonCoral
 import com.example.ui.theme.NeonEmerald
-import com.example.ui.theme.NeonPurple
 import com.example.ui.theme.RewardGold
 import com.example.ui.theme.RewardGoldGradient
 import com.example.ui.theme.RewardGoldLight
@@ -76,17 +73,27 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class WithdrawalSuccessData(
+    val withdrawalId: String,
+    val amount: Double,
+    val method: String,
+    val details: String
+)
+
 @Composable
 fun WalletScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val walletBalance by viewModel.walletBalance.collectAsState()
     val transactions by viewModel.transactions.collectAsState()
     val withdrawals by viewModel.withdrawals.collectAsState()
+    val userProfile by viewModel.userProfile.collectAsState()
 
     var showWithdrawalDialog by remember { mutableStateOf(false) }
-    var withdrawalFeedbackMessage by remember { mutableStateOf<String?>(null) }
+    var successfulWithdrawalData by remember { mutableStateOf<WithdrawalSuccessData?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Box(
         modifier = Modifier
@@ -143,7 +150,7 @@ fun WalletScreen(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "TEST / DEMO REWARD MODE: Simulated wallet ledger for preview. No real monetary transactions are processed in demo mode.",
+                                text = "TEST / REWARD MODE: Withdrawal requests are reviewed and processed manually by the administrator. No automatic cashout.",
                                 color = TextSecondary,
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp
@@ -293,7 +300,7 @@ fun WalletScreen(
         // Bottom Banner Ad
         BannerAdCard(modifier = Modifier.align(Alignment.BottomCenter))
 
-        // Withdrawal Dialog
+        // Withdrawal Request Form Dialog
         if (showWithdrawalDialog) {
             WithdrawalModal(
                 availableBalance = walletBalance.availableBalance,
@@ -301,42 +308,153 @@ fun WalletScreen(
                 onSubmit = { amount, method, details ->
                     viewModel.submitWithdrawal(amount, method, details) { res ->
                         showWithdrawalDialog = false
-                        withdrawalFeedbackMessage = if (res.isSuccess) {
-                            "Withdrawal request created! ID: ${res.getOrNull()}"
+                        if (res.isSuccess) {
+                            val wId = res.getOrNull() ?: "PV-${System.currentTimeMillis()}"
+                            successfulWithdrawalData = WithdrawalSuccessData(
+                                withdrawalId = wId,
+                                amount = amount,
+                                method = method,
+                                details = details
+                            )
                         } else {
-                            res.exceptionOrNull()?.message ?: "Withdrawal failed"
+                            errorMessage = res.exceptionOrNull()?.message ?: "Withdrawal request failed"
                         }
                     }
                 }
             )
         }
 
-        // Feedback Notice
-        if (withdrawalFeedbackMessage != null) {
-            Dialog(onDismissRequest = { withdrawalFeedbackMessage = null }) {
+        // Withdrawal Request Successful Dialog with WhatsApp integration
+        if (successfulWithdrawalData != null) {
+            val data = successfulWithdrawalData!!
+            Dialog(onDismissRequest = { successfulWithdrawalData = null }) {
+                GlassCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    borderColor = NeonEmerald,
+                    cornerRadius = 24.dp
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(Color(0x3310B981)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Success",
+                                tint = NeonEmerald,
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Withdrawal Request Successful",
+                            color = TextPrimary,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Black
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = "Withdrawal ID: ${data.withdrawalId}",
+                            color = ElectricBlue,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Text(
+                            text = "Requested Amount: ₹${data.amount.toInt()}",
+                            color = RewardGoldLight,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0x33FFB800))
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text("Status: PENDING", color = RewardGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Text(
+                            text = "Request submitted successfully. Payment will be processed manually by admin.",
+                            color = TextSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // WhatsApp Action Button
+                        Neon3DButton(
+                            text = "💬 Notify Admin on WhatsApp",
+                            onClick = {
+                                val user = userProfile?.username ?: "Player"
+                                val msg = "Hello Admin, I have submitted a withdrawal request on PuzzleVerse.\n\n" +
+                                        "• App: PuzzleVerse\n" +
+                                        "• Withdrawal Request ID: ${data.withdrawalId}\n" +
+                                        "• Amount: ₹${data.amount.toInt()}\n" +
+                                        "• User: $user\n\n" +
+                                        "Please verify the request in the admin dashboard and process manual payment."
+
+                                val uri = Uri.parse("https://api.whatsapp.com/send?phone=${Constants.SUPPORT_WHATSAPP_NUMBER}&text=${Uri.encode(msg)}")
+                                val intent = Intent(Intent.ACTION_VIEW, uri)
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "WhatsApp not installed. ID saved to ledger.", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            gradient = Brush.horizontalGradient(listOf(Color(0xFF25D366), Color(0xFF128C7E))),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Neon3DButton(
+                            text = "Done",
+                            onClick = { successfulWithdrawalData = null },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+
+        // Error message modal
+        if (errorMessage != null) {
+            Dialog(onDismissRequest = { errorMessage = null }) {
                 GlassCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp),
+                    borderColor = NeonCoral,
                     cornerRadius = 20.dp
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "STATUS",
-                            color = ElectricBlue,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text("ERROR", color = NeonCoral, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = withdrawalFeedbackMessage ?: "",
-                            color = TextPrimary,
-                            fontSize = 14.sp
-                        )
+                        Text(text = errorMessage ?: "", color = TextPrimary, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(16.dp))
                         Neon3DButton(
                             text = "OK",
-                            onClick = { withdrawalFeedbackMessage = null },
+                            onClick = { errorMessage = null },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -370,7 +488,7 @@ private fun TransactionItemCard(tx: WalletTransaction) {
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isCredit) Icons.Default.MonetizationOn else Icons.Default.ReceiptLong,
+                        imageVector = if (isCredit) Icons.Default.MonetizationOn else Icons.AutoMirrored.Filled.ReceiptLong,
                         contentDescription = null,
                         tint = if (isCredit) NeonEmerald else NeonCoral,
                         modifier = Modifier.size(20.dp)
@@ -429,9 +547,10 @@ private fun WithdrawalItemCard(wth: Withdrawal) {
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "$dateStr • ID: ${wth.id.take(12)}",
-                    color = TextSecondary,
-                    fontSize = 10.sp
+                    text = "$dateStr • ID: ${wth.id}",
+                    color = ElectricBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
                     text = wth.remarks,
@@ -464,8 +583,6 @@ private fun WithdrawalModal(
     onDismiss: () -> Unit,
     onSubmit: (amount: Double, method: String, details: String) -> Unit
 ) {
-    var selectedMethod by remember { mutableStateOf("UPI") }
-    var details by remember { mutableStateOf("") }
     var amountText by remember { mutableStateOf("50") }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -477,64 +594,51 @@ private fun WithdrawalModal(
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "REQUEST WITHDRAWAL (TEST)",
+                    text = "CONFIRM WITHDRAWAL REQUEST",
                     color = RewardGoldLight,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Black
                 )
                 Text(
-                    text = "Available: ₹${availableBalance.toInt()} • Min: ₹50",
+                    text = "Available: ₹${availableBalance.toInt()} • Minimum: ₹50",
                     color = TextSecondary,
                     fontSize = 12.sp
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Payment Method selection
-                Text("Select Method", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF141926))
+                        .padding(12.dp)
                 ) {
-                    listOf("UPI", "PAYTM", "BANK").forEach { method ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedMethod = method }
-                        ) {
-                            RadioButton(
-                                selected = (selectedMethod == method),
-                                onClick = { selectedMethod = method },
-                                colors = RadioButtonDefaults.colors(selectedColor = ElectricBlue)
-                            )
-                            Text(text = method, color = TextPrimary, fontSize = 13.sp)
-                        }
+                    Column {
+                        Text(
+                            text = "Admin Payout Process:",
+                            color = ElectricBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Upon submission, your balance will be reserved and a unique Withdrawal Request ID will be created in your ledger. You can immediately share this ID with the administrator on WhatsApp to complete payment.",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Amount
                 OutlinedTextField(
                     value = amountText,
                     onValueChange = { amountText = it },
-                    label = { Text("Amount (₹)") },
+                    label = { Text("Amount to Withdraw (₹)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = ElectricBlue,
-                        unfocusedBorderColor = Color(0xFF2E3D5C)
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Details (e.g. UPI ID or Account Number)
-                OutlinedTextField(
-                    value = details,
-                    onValueChange = { details = it },
-                    label = { Text(if (selectedMethod == "UPI") "UPI ID (e.g. user@okhdfc)" else "Account / Wallet Number") },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = TextPrimary,
@@ -546,19 +650,22 @@ private fun WithdrawalModal(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                val enteredAmount = amountText.toDoubleOrNull() ?: 0.0
+                val isValid = enteredAmount >= 50.0 && enteredAmount <= availableBalance
+
                 Neon3DButton(
-                    text = "Submit Request",
+                    text = "Submit Request (₹${enteredAmount.toInt()})",
                     onClick = {
-                        val amount = amountText.toDoubleOrNull() ?: 50.0
-                        if (details.isNotBlank()) {
-                            onSubmit(amount, selectedMethod, details)
+                        if (isValid) {
+                            onSubmit(enteredAmount, "MANUAL_ADMIN", "WhatsApp Admin Payout")
                         }
                     },
-                    gradient = RewardGoldGradient,
+                    enabled = isValid,
+                    gradient = if (isValid) RewardGoldGradient else Brush.horizontalGradient(listOf(Color(0xFF334155), Color(0xFF1E293B))),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
                     text = "Cancel",

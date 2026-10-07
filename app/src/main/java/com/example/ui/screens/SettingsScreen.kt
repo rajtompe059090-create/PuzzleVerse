@@ -17,15 +17,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -132,12 +133,29 @@ fun SettingsScreen(
                         Column {
                             SettingToggleItem(
                                 title = "Sound Effects",
-                                icon = Icons.Default.VolumeUp,
+                                icon = Icons.AutoMirrored.Filled.VolumeUp,
                                 checked = settings?.soundEnabled ?: true,
                                 onCheckedChange = {
                                     val current = settings ?: return@SettingToggleItem
                                     val updated = current.copy(soundEnabled = it)
                                     soundHaptic.isSoundEnabled = it
+                                    viewModel.updateSettings(updated)
+                                }
+                            )
+
+                            SettingToggleItem(
+                                title = "Background Music",
+                                icon = Icons.Default.MusicNote,
+                                checked = settings?.musicEnabled ?: true,
+                                onCheckedChange = {
+                                    val current = settings ?: return@SettingToggleItem
+                                    val updated = current.copy(musicEnabled = it)
+                                    soundHaptic.isMusicEnabled = it
+                                    if (it) {
+                                        soundHaptic.startBackgroundMusic()
+                                    } else {
+                                        soundHaptic.stopBackgroundMusic()
+                                    }
                                     viewModel.updateSettings(updated)
                                 }
                             )
@@ -192,7 +210,7 @@ fun SettingsScreen(
                             )
                             SettingNavRow(
                                 title = "Help & Support",
-                                icon = Icons.Default.HelpOutline,
+                                icon = Icons.AutoMirrored.Filled.HelpOutline,
                                 onClick = { showHelpDialog = true }
                             )
                             SettingNavRow(
@@ -262,7 +280,7 @@ fun SettingsScreen(
                         Text("Version 1.0.0 (Production Release Candidate)", color = ElectricBlue, fontSize = 12.sp)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Developer: ${Constants.DEVELOPER_NAME}\nSupport: ${Constants.SUPPORT_EMAIL}\n\nA high-performance 3D animated puzzle game featuring Arrow Flow, Block Merge, Color Path, and Tile Match with verified completion logic and test reward ledger.",
+                            "Developer: ${Constants.DEVELOPER_NAME}\nSupport: ${Constants.SUPPORT_EMAIL}\n\nA high-performance 3D animated puzzle game featuring Arrow Flow, Block Merge, Heart Maze, and Tile Match with verified completion logic and test reward ledger.",
                             color = TextSecondary,
                             fontSize = 13.sp
                         )

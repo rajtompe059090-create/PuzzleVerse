@@ -28,17 +28,23 @@ android {
     }
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH")
-      val uploadKey = if (keystorePath != null) file(keystorePath) else file("${rootDir}/my-upload-key.jks")
+      val uploadKey = when {
+        keystorePath != null -> file(keystorePath)
+        file("${rootDir}/keystore/puzzleverse-upload.jks").exists() -> file("${rootDir}/keystore/puzzleverse-upload.jks")
+        file("${rootDir}/my-upload-key.jks").exists() -> file("${rootDir}/my-upload-key.jks")
+        else -> file("${rootDir}/keystore/puzzleverse-upload.jks")
+      }
       if (uploadKey.exists()) {
         storeFile = uploadKey
-        storePassword = System.getenv("STORE_PASSWORD")
-        keyAlias = "upload"
-        keyPassword = System.getenv("KEY_PASSWORD")
+        storePassword = System.getenv("STORE_PASSWORD") ?: "puzzleverse"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "puzzleverse-upload"
+        keyPassword = System.getenv("KEY_PASSWORD") ?: "puzzleverse"
       } else {
-        storeFile = file("${rootDir}/debug.keystore")
-        storePassword = "android"
-        keyAlias = "androiddebugkey"
-        keyPassword = "android"
+        // Strict Google Play Release Policy: Never fall back to debug.keystore.
+        storeFile = uploadKey
+        storePassword = System.getenv("STORE_PASSWORD") ?: ""
+        keyAlias = System.getenv("KEY_ALIAS") ?: "puzzleverse-upload"
+        keyPassword = System.getenv("KEY_PASSWORD") ?: ""
       }
     }
   }

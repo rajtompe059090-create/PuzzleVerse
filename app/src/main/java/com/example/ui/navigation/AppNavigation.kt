@@ -42,7 +42,7 @@ import com.example.PuzzleApplication
 import com.example.core.Constants
 import com.example.games.arrowflow.ArrowFlowGameScreen
 import com.example.games.blockmerge.BlockMergeGameScreen
-import com.example.games.colorpath.ColorPathGameScreen
+import com.example.games.heartmaze.HeartMazeGameScreen
 import com.example.games.tilematch.TileMatchGameScreen
 import com.example.ui.screens.GameSelectScreen
 import com.example.ui.screens.HomeScreen
@@ -247,8 +247,8 @@ fun AppNavigation(
                                     }
                                 )
                             }
-                            Constants.GAME_COLOR_PATH -> {
-                                ColorPathGameScreen(
+                            Constants.GAME_HEART_MAZE -> {
+                                HeartMazeGameScreen(
                                     levelNumber = target.levelNumber,
                                     onBack = { viewModel.navigateTo(Screen.LevelMap(target.gameId)) },
                                     onNextLevel = { nextLvl ->

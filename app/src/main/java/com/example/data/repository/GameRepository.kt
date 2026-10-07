@@ -1,5 +1,6 @@
 package com.example.data.repository
 
+import androidx.room.withTransaction
 import com.example.core.Constants
 import com.example.data.dao.AchievementDao
 import com.example.data.dao.AppSettingsDao
@@ -19,6 +20,9 @@ import com.example.data.entity.Withdrawal
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 data class RewardClaimResult(
@@ -60,7 +64,7 @@ class GameRepository(
     // Wallet & Earnings
     val transactions: Flow<List<WalletTransaction>> = walletDao.getAllTransactions()
     val withdrawals: Flow<List<Withdrawal>> = withdrawalDao.getAllWithdrawals()
-    val achievements = achievementDao.getAllAchievements()
+    val achievements: Flow<List<com.example.data.entity.Achievement>> = achievementDao.getAllAchievements()
 
     val walletBalanceInfo: Flow<WalletBalanceInfo> = combine(
         walletDao.getTotalEarned(),
@@ -114,10 +118,17 @@ class GameRepository(
         return true
     }
 
+    suspend fun isLevelRewardClaimed(gameId: String, levelNumber: Int): Boolean {
+        return walletDao.getRewardClaim(gameId, levelNumber) != null
+    }
+
+    suspend fun getRewardClaim(gameId: String, levelNumber: Int): RewardClaim? {
+        return walletDao.getRewardClaim(gameId, levelNumber)
+    }
+
     /**
-     * Genuine level completion handler.
-     * Grants reward ONLY on genuine first-time level completion.
-     * Prevents duplicate rewards for already completed levels.
+     * Level completion handler with Anti-Duplicate verification.
+     * Supports Normal Reward (1x) and Double Reward (2x) gated by real AdMob completion.
      */
     suspend fun completeLevelAndClaimReward(
         gameId: String,
@@ -126,14 +137,14 @@ class GameRepository(
         timeSeconds: Int,
         score: Int,
         stars: Int,
-        adWatched: Boolean = true
-    ): RewardClaimResult {
+        adWatched: Boolean = true,
+        isDoubleReward: Boolean = false
+    ): RewardClaimResult = database.withTransaction {
         // Increment games played counter
         userProfileDao.incrementGamesPlayed()
 
-        // Check if level was already completed previously
+        // Check if level was already claimed previously
         val existingClaim = walletDao.getRewardClaim(gameId, levelNumber)
-        val level = gameDao.getLevelSync(gameId, levelNumber)
 
         // Always update best score and record progress
         gameDao.markLevelCompleted(gameId, levelNumber, score, stars)
@@ -159,9 +170,9 @@ class GameRepository(
         achievementDao.updateProgress("level_50", completedCount)
         achievementDao.updateProgress("level_100", completedCount)
 
-        // Check if reward was already granted
-        if (existingClaim != null || (level != null && level.isCompleted)) {
-            return RewardClaimResult(
+        // Anti-duplicate protection: prevent duplicate reward credit
+        if (existingClaim != null) {
+            return@withTransaction RewardClaimResult(
                 success = true,
                 rewardGranted = false,
                 amountGranted = 0.0,
@@ -169,16 +180,20 @@ class GameRepository(
             )
         }
 
-        // First-time completion: grant reward!
+        // Calculate reward amount (Normal vs 2x)
+        val baseAmount = Constants.LEVEL_REWARD_AMOUNT
+        val finalAmount = if (isDoubleReward) baseAmount * 2.0 else baseAmount
+        val claimType = if (isDoubleReward) "DOUBLE" else "NORMAL"
+
         val txId = "REW_${gameId.take(3).uppercase()}_L${levelNumber}_${UUID.randomUUID().toString().take(6).uppercase()}"
         val tx = WalletTransaction(
             transactionId = txId,
             type = "LEVEL_REWARD",
-            amount = Constants.LEVEL_REWARD_AMOUNT,
+            amount = finalAmount,
             gameId = gameId,
             levelNumber = levelNumber,
             status = "COMPLETED",
-            referenceNote = "Completed $gameId Level $levelNumber"
+            referenceNote = "Completed $gameId Level $levelNumber ($claimType REWARD)"
         )
         walletDao.insertTransaction(tx)
 
@@ -186,22 +201,23 @@ class GameRepository(
             claimId = "${gameId}_$levelNumber",
             gameId = gameId,
             levelNumber = levelNumber,
-            rewardAmount = Constants.LEVEL_REWARD_AMOUNT,
+            rewardAmount = finalAmount,
             adWatched = adWatched,
-            transactionId = txId
+            transactionId = txId,
+            claimType = claimType
         )
         walletDao.insertRewardClaim(claim)
 
-        return RewardClaimResult(
+        RewardClaimResult(
             success = true,
             rewardGranted = true,
-            amountGranted = Constants.LEVEL_REWARD_AMOUNT,
-            message = "Level $levelNumber Completed! +₹${Constants.LEVEL_REWARD_AMOUNT.toInt()} credited to Wallet"
+            amountGranted = finalAmount,
+            message = "Level $levelNumber Completed! +₹${finalAmount.toInt()} ($claimType) credited to Wallet"
         )
     }
 
     /**
-     * Creates a test/demo withdrawal request.
+     * Creates a withdrawal request with guaranteed unique ID in PV-YYYYMMDD-XXXXXX format.
      * Enforces the minimum withdrawal constraint of ₹50.
      */
     suspend fun requestWithdrawal(
@@ -214,28 +230,33 @@ class GameRepository(
             return Result.failure(Exception("Minimum withdrawal amount is ₹${Constants.MINIMUM_WITHDRAWAL_AMOUNT.toInt()}"))
         }
         if (amount > balance.availableBalance) {
-            return Result.failure(Exception("Insufficient available balance (₹${balance.availableBalance})"))
+            return Result.failure(Exception("Insufficient available balance (₹${balance.availableBalance.toInt()})"))
         }
 
-        val withdrawalId = "WTH_${UUID.randomUUID().toString().take(8).uppercase()}"
-        val withdrawal = Withdrawal(
-            id = withdrawalId,
-            amount = amount,
-            payoutMethod = payoutMethod,
-            payoutDetails = payoutDetails,
-            status = "PENDING",
-            remarks = "Test/Demo withdrawal request created. Verification in progress."
-        )
-        withdrawalDao.insertWithdrawal(withdrawal)
+        val dateStr = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+        val randomHex = UUID.randomUUID().toString().replace("-", "").take(6).uppercase()
+        val withdrawalId = "PV-$dateStr-$randomHex"
 
-        val tx = WalletTransaction(
-            transactionId = "TX_$withdrawalId",
-            type = "WITHDRAWAL_REQUEST",
-            amount = amount,
-            status = "PENDING",
-            referenceNote = "Withdrawal request to $payoutMethod ($payoutDetails)"
-        )
-        walletDao.insertTransaction(tx)
+        database.withTransaction {
+            val withdrawal = Withdrawal(
+                id = withdrawalId,
+                amount = amount,
+                payoutMethod = payoutMethod,
+                payoutDetails = payoutDetails,
+                status = "PENDING",
+                remarks = "Request submitted successfully. Payment will be processed manually by admin."
+            )
+            withdrawalDao.insertWithdrawal(withdrawal)
+
+            val tx = WalletTransaction(
+                transactionId = "TX_$withdrawalId",
+                type = "WITHDRAWAL_REQUEST",
+                amount = amount,
+                status = "PENDING",
+                referenceNote = "Withdrawal request [$withdrawalId] via $payoutMethod"
+            )
+            walletDao.insertTransaction(tx)
+        }
 
         return Result.success(withdrawalId)
     }

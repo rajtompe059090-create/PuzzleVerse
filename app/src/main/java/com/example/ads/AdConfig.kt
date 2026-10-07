@@ -5,12 +5,12 @@ package com.example.ads
  */
 object AdConfig {
     // Production AdMob Application ID
-    const val ADMOB_APP_ID = "ca-app-pub-6146868530948467~2073205894"
+    const val ADMOB_APP_ID = "ca-app-pub-6146868530948467~9748340928"
 
     // Production Ad Unit IDs
-    const val PROD_BANNER_AD_UNIT_ID = "ca-app-pub-6146868530948467/9742803195"
-    const val PROD_INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-6146868530948467/5525365749"
-    const val PROD_REWARDED_AD_UNIT_ID = "ca-app-pub-6146868530948467/3177394847"
+    const val PROD_BANNER_AD_UNIT_ID = "ca-app-pub-6146868530948467/7099808462"
+    const val PROD_INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-6146868530948467/3914232762"
+    const val PROD_REWARDED_AD_UNIT_ID = "ca-app-pub-6146868530948467/4473645124"
 
     // Standard Google Sample Test Ad Unit IDs for development testing
     const val TEST_BANNER_AD_UNIT_ID = "ca-app-pub-3940256099942544/6300978111"

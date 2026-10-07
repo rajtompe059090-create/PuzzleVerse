@@ -111,6 +111,9 @@ interface WithdrawalDao {
     @Query("SELECT * FROM withdrawals ORDER BY requestTimestamp DESC")
     fun getAllWithdrawals(): Flow<List<Withdrawal>>
 
+    @Query("SELECT * FROM withdrawals WHERE id = :id LIMIT 1")
+    suspend fun getWithdrawalById(id: String): Withdrawal?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWithdrawal(withdrawal: Withdrawal)
 

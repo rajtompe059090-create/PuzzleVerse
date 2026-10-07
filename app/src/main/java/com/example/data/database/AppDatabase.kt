@@ -121,10 +121,10 @@ abstract class AppDatabase : RoomDatabase() {
                 totalLevels = Constants.TOTAL_LEVELS_PER_GAME
             ),
             Game(
-                id = Constants.GAME_COLOR_PATH,
-                name = "Color Path",
-                description = "Connect matching colors without crossing lines",
-                iconName = "color_path",
+                id = Constants.GAME_HEART_MAZE,
+                name = "Heart Maze",
+                description = "Navigate the glowing heart maze to reach the destination",
+                iconName = "heart_maze",
                 totalLevels = Constants.TOTAL_LEVELS_PER_GAME
             ),
             Game(
@@ -142,10 +142,11 @@ abstract class AppDatabase : RoomDatabase() {
         for (game in games) {
             for (level in 1..Constants.TOTAL_LEVELS_PER_GAME) {
                 val difficulty = when {
-                    level <= 10 -> "Easy"
-                    level <= 30 -> "Medium"
-                    level <= 70 -> "Hard"
-                    else -> "Expert"
+                    level <= 25 -> "Easy"
+                    level <= 50 -> "Normal"
+                    level <= 75 -> "Hard"
+                    level <= 90 -> "Very Hard"
+                    else -> "Extreme"
                 }
                 allLevels.add(
                     GameLevel(

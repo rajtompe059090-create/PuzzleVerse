@@ -1,5 +1,13 @@
 package com.example.games.blockmerge
 
+import android.app.Activity
+import android.widget.Toast
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -14,7 +22,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,9 +29,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
@@ -41,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -55,7 +65,6 @@ import com.example.core.Constants
 import com.example.games.common.LevelCompleteDialog
 import com.example.ui.components.GlassCard
 import com.example.ui.components.Neon3DButton
-import com.example.ui.theme.DarkBgCard
 import com.example.ui.theme.DarkBgPrimary
 import com.example.ui.theme.ElectricBlue
 import com.example.ui.theme.NeonCoral
@@ -78,6 +87,7 @@ fun BlockMergeGameScreen(
     onNextLevel: (Int) -> Unit
 ) {
     val context = LocalContext.current
+    val activity = context as? Activity
     val app = context.applicationContext as PuzzleApplication
     val soundHaptic = app.soundHapticManager
     val repository = app.repository
@@ -100,12 +110,24 @@ fun BlockMergeGameScreen(
     var score by remember(levelNumber) { mutableIntStateOf(0) }
     var movesLeft by remember(levelNumber) { mutableIntStateOf(maxMoves) }
     var elapsedSeconds by remember(levelNumber) { mutableIntStateOf(0) }
+    var hintsUsed by remember(levelNumber) { mutableIntStateOf(0) }
     var hintDirection by remember { mutableStateOf<SlideDirection?>(null) }
 
     var isWon by remember { mutableStateOf(false) }
     var isGameOver by remember { mutableStateOf(false) }
     var isRewardClaimed by remember { mutableStateOf(false) }
     var isClaimingReward by remember { mutableStateOf(false) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "HintArrowPulse")
+    val hintPulseScale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "HintScale"
+    )
 
     // Timer
     LaunchedEffect(isWon, isGameOver) {
@@ -121,7 +143,12 @@ fun BlockMergeGameScreen(
         if (isWon || isGameOver) return
         val result = BlockMergeHelper.slide(grid, dir)
         if (result.moved) {
-            soundHaptic.playMoveSuccess()
+            if (result.scoreGained > 0) {
+                soundHaptic.playBlockMerge()
+            } else {
+                soundHaptic.playBlockSlide()
+            }
+
             score += result.scoreGained
             movesLeft--
             hintDirection = null
@@ -151,6 +178,30 @@ fun BlockMergeGameScreen(
             } else if (movesLeft <= 0 || !BlockMergeHelper.canMakeAnyMove(grid)) {
                 soundHaptic.playWrongMove()
                 isGameOver = true
+            }
+        }
+    }
+
+    // Hint Logic: 2 free hints, 3+ requires Interstitial Ad
+    fun requestHint() {
+        if (isWon || isGameOver) return
+        val best = BlockMergeHelper.getBestHint(grid)
+        if (best == null) {
+            Toast.makeText(context, "No moves possible!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (hintsUsed < Constants.FREE_HINTS_PER_LEVEL) {
+            hintsUsed++
+            hintDirection = best
+            soundHaptic.playHint()
+            Toast.makeText(context, "Free Hint: Slide $best! (${Constants.FREE_HINTS_PER_LEVEL - hintsUsed} left)", Toast.LENGTH_SHORT).show()
+        } else {
+            adMobManager.showInterstitial(activity) {
+                hintsUsed++
+                hintDirection = best
+                soundHaptic.playHint()
+                Toast.makeText(context, "Hint Unlocked via Ad!", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -190,32 +241,43 @@ fun BlockMergeGameScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        text = "Level $levelNumber • Target $targetValue",
+                        text = "Level $levelNumber",
                         color = TextPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                IconButton(onClick = {
-                    val initialGrid = Array(4) { IntArray(4) { 0 } }
-                    val rng = Random(System.currentTimeMillis())
-                    val s1 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
-                    if (s1 != null) initialGrid[s1.first][s1.second] = 2
-                    val s2 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
-                    if (s2 != null) initialGrid[s2.first][s2.second] = 2
-                    grid = initialGrid
-                    score = 0
-                    movesLeft = maxMoves
-                    elapsedSeconds = 0
-                    isWon = false
-                    isGameOver = false
-                }) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Restart",
-                        tint = TextPrimary
-                    )
+                Row {
+                    IconButton(onClick = { requestHint() }) {
+                        Icon(
+                            imageVector = Icons.Default.Lightbulb,
+                            contentDescription = "Hint",
+                            tint = if (hintsUsed < Constants.FREE_HINTS_PER_LEVEL) RewardGold else ElectricBlue
+                        )
+                    }
+
+                    IconButton(onClick = {
+                        val initialGrid = Array(4) { IntArray(4) { 0 } }
+                        val rng = Random(levelNumber * 101)
+                        val s1 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
+                        if (s1 != null) initialGrid[s1.first][s1.second] = 2
+                        val s2 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
+                        if (s2 != null) initialGrid[s2.first][s2.second] = if (levelNumber > 10) 4 else 2
+                        grid = initialGrid
+                        score = 0
+                        movesLeft = maxMoves
+                        elapsedSeconds = 0
+                        hintDirection = null
+                        isGameOver = false
+                        isWon = false
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Restart",
+                            tint = TextPrimary
+                        )
+                    }
                 }
             }
 
@@ -276,68 +338,37 @@ fun BlockMergeGameScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Hint bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF162035))
-                        .clickable {
-                            hintDirection = BlockMergeHelper.getBestHint(grid)
-                            soundHaptic.playClick()
-                        }
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Lightbulb,
-                            contentDescription = "Hint",
-                            tint = RewardGold,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = if (hintDirection != null) "Swipe $hintDirection!" else "Show Hint",
-                            color = if (hintDirection != null) RewardGold else TextSecondary,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Board (Swipe gesture support)
+            // Board (Swipe gesture support + 3D depth)
             var totalDragX by remember { mutableStateOf(0f) }
             var totalDragY by remember { mutableStateOf(0f) }
 
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
                     .weight(1f)
-                    .padding(16.dp),
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
                 contentAlignment = Alignment.Center
             ) {
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(2.dp, Color(0xFF243452), RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Color(0xFF0F1526))
+                        .border(2.dp, Color(0xFF1B2640), RoundedCornerShape(24.dp))
                         .padding(12.dp)
                         .pointerInput(Unit) {
                             detectDragGestures(
-                                onDragStart = {
+                                onDragEnd = {
+                                    if (abs(totalDragX) > abs(totalDragY)) {
+                                        if (totalDragX > 30) makeSlide(SlideDirection.RIGHT)
+                                        else if (totalDragX < -30) makeSlide(SlideDirection.LEFT)
+                                    } else {
+                                        if (totalDragY > 30) makeSlide(SlideDirection.DOWN)
+                                        else if (totalDragY < -30) makeSlide(SlideDirection.UP)
+                                    }
                                     totalDragX = 0f
                                     totalDragY = 0f
                                 },
@@ -345,49 +376,53 @@ fun BlockMergeGameScreen(
                                     change.consume()
                                     totalDragX += dragAmount.x
                                     totalDragY += dragAmount.y
-                                },
-                                onDragEnd = {
-                                    val threshold = 40f
-                                    if (abs(totalDragX) > abs(totalDragY)) {
-                                        if (totalDragX > threshold) makeSlide(SlideDirection.RIGHT)
-                                        else if (totalDragX < -threshold) makeSlide(SlideDirection.LEFT)
-                                    } else {
-                                        if (totalDragY > threshold) makeSlide(SlideDirection.DOWN)
-                                        else if (totalDragY < -threshold) makeSlide(SlideDirection.UP)
-                                    }
                                 }
                             )
-                        }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    val cellSize = maxWidth / 4
-
-                    for (r in 0 until 4) {
-                        for (c in 0 until 4) {
-                            val value = grid[r][c]
-                            val xOffset = cellSize * c
-                            val yOffset = cellSize * r
-
-                            Box(
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        for (r in 0 until 4) {
+                            Row(
                                 modifier = Modifier
-                                    .size(cellSize)
-                                    .offset(x = xOffset, y = yOffset)
-                                    .padding(4.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(getBlockColor(value))
-                                    .border(
-                                        1.dp,
-                                        if (value >= targetValue) RewardGold else Color(0x22FFFFFF),
-                                        RoundedCornerShape(12.dp)
-                                    ),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                if (value > 0) {
-                                    Text(
-                                        text = "$value",
-                                        color = if (value <= 4) Color.White else Color(0xFFFFFFFF),
-                                        fontSize = if (value >= 1024) 18.sp else 22.sp,
-                                        fontWeight = FontWeight.ExtraBold
-                                    )
+                                for (c in 0 until 4) {
+                                    val value = grid[r][c]
+                                    val blockColor = getBlockColor(value)
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .aspectRatio(1f)
+                                            .padding(4.dp)
+                                            .shadow(if (value > 0) 8.dp else 0.dp, RoundedCornerShape(12.dp), spotColor = blockColor)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(
+                                                if (value == 0) Brush.verticalGradient(listOf(Color(0xFF151D30), Color(0xFF0E1322)))
+                                                else Brush.verticalGradient(listOf(blockColor, blockColor.copy(alpha = 0.75f)))
+                                            )
+                                            .border(
+                                                width = if (value >= targetValue) 2.dp else 1.dp,
+                                                color = if (value >= targetValue) RewardGold else Color(0x33FFFFFF),
+                                                shape = RoundedCornerShape(12.dp)
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (value > 0) {
+                                            Text(
+                                                text = "$value",
+                                                color = Color.White,
+                                                fontSize = if (value >= 1024) 18.sp else if (value >= 128) 22.sp else 26.sp,
+                                                fontWeight = FontWeight.Black
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -395,68 +430,66 @@ fun BlockMergeGameScreen(
                 }
             }
 
-            // Directional On-Screen Controls (for easy touch access)
-            Row(
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Directional controls for accessible gameplay
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                    .padding(horizontal = 24.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                IconButton(
-                    onClick = { makeSlide(SlideDirection.LEFT) },
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(DarkBgCard)
-                        .border(1.dp, Color(0xFF2E3D5C), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Slide Left",
-                        tint = ElectricBlue
-                    )
-                }
                 IconButton(
                     onClick = { makeSlide(SlideDirection.UP) },
                     modifier = Modifier
                         .size(46.dp)
-                        .clip(CircleShape)
-                        .background(DarkBgCard)
-                        .border(1.dp, Color(0xFF2E3D5C), CircleShape)
+                        .scale(if (hintDirection == SlideDirection.UP) hintPulseScale else 1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (hintDirection == SlideDirection.UP) Color(0x66FFB800) else Color(0xFF161F33))
+                        .border(1.dp, if (hintDirection == SlideDirection.UP) RewardGold else Color(0xFF263554), RoundedCornerShape(12.dp))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Slide Up",
-                        tint = NeonPurple
-                    )
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Up", tint = if (hintDirection == SlideDirection.UP) RewardGold else NeonPurple)
                 }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(0.55f),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    IconButton(
+                        onClick = { makeSlide(SlideDirection.LEFT) },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .scale(if (hintDirection == SlideDirection.LEFT) hintPulseScale else 1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (hintDirection == SlideDirection.LEFT) Color(0x66FFB800) else Color(0xFF161F33))
+                            .border(1.dp, if (hintDirection == SlideDirection.LEFT) RewardGold else Color(0xFF263554), RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowLeft, contentDescription = "Left", tint = if (hintDirection == SlideDirection.LEFT) RewardGold else NeonPurple)
+                    }
+
+                    IconButton(
+                        onClick = { makeSlide(SlideDirection.RIGHT) },
+                        modifier = Modifier
+                            .size(46.dp)
+                            .scale(if (hintDirection == SlideDirection.RIGHT) hintPulseScale else 1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (hintDirection == SlideDirection.RIGHT) Color(0x66FFB800) else Color(0xFF161F33))
+                            .border(1.dp, if (hintDirection == SlideDirection.RIGHT) RewardGold else Color(0xFF263554), RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = "Right", tint = if (hintDirection == SlideDirection.RIGHT) RewardGold else NeonPurple)
+                    }
+                }
+
                 IconButton(
                     onClick = { makeSlide(SlideDirection.DOWN) },
                     modifier = Modifier
                         .size(46.dp)
-                        .clip(CircleShape)
-                        .background(DarkBgCard)
-                        .border(1.dp, Color(0xFF2E3D5C), CircleShape)
+                        .scale(if (hintDirection == SlideDirection.DOWN) hintPulseScale else 1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (hintDirection == SlideDirection.DOWN) Color(0x66FFB800) else Color(0xFF161F33))
+                        .border(1.dp, if (hintDirection == SlideDirection.DOWN) RewardGold else Color(0xFF263554), RoundedCornerShape(12.dp))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Slide Down",
-                        tint = NeonPink
-                    )
-                }
-                IconButton(
-                    onClick = { makeSlide(SlideDirection.RIGHT) },
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(DarkBgCard)
-                        .border(1.dp, Color(0xFF2E3D5C), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowForward,
-                        contentDescription = "Slide Right",
-                        tint = ElectricBlue
-                    )
+                    Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Down", tint = if (hintDirection == SlideDirection.DOWN) RewardGold else NeonPurple)
                 }
             }
         }
@@ -464,7 +497,7 @@ fun BlockMergeGameScreen(
         // Bottom Banner Ad
         BannerAdCard(modifier = Modifier.align(Alignment.BottomCenter))
 
-        // Game Over modal
+        // Game over modal
         if (isGameOver) {
             Box(
                 modifier = Modifier
@@ -475,35 +508,22 @@ fun BlockMergeGameScreen(
                 GlassCard(
                     modifier = Modifier
                         .fillMaxWidth(0.85f)
-                        .padding(20.dp),
-                    cornerRadius = 20.dp
+                        .padding(24.dp)
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "NO MORE MOVES!",
-                            color = NeonCoral,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "You couldn't reach $targetValue. Try again with a new strategy!",
-                            color = TextSecondary,
-                            fontSize = 14.sp
-                        )
-                        Spacer(modifier = Modifier.height(20.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("NO MOVES LEFT!", color = NeonCoral, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("You reached Score: $score without reaching $targetValue", color = TextSecondary, fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(18.dp))
                         Neon3DButton(
-                            text = "Try Again",
+                            text = "Try Again ↺",
                             onClick = {
                                 val initialGrid = Array(4) { IntArray(4) { 0 } }
-                                val rng = Random(System.currentTimeMillis())
+                                val rng = Random(levelNumber * 101)
                                 val s1 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
                                 if (s1 != null) initialGrid[s1.first][s1.second] = 2
                                 val s2 = BlockMergeHelper.spawnNewTile(initialGrid, rng)
-                                if (s2 != null) initialGrid[s2.first][s2.second] = 2
+                                if (s2 != null) initialGrid[s2.first][s2.second] = if (levelNumber > 10) 4 else 2
                                 grid = initialGrid
                                 score = 0
                                 movesLeft = maxMoves
@@ -527,11 +547,9 @@ fun BlockMergeGameScreen(
                 movesUsed = maxMoves - movesLeft,
                 timeSeconds = elapsedSeconds,
                 isClaimingReward = isClaimingReward,
-                onClaimReward = {
+                onClaimNormalReward = {
                     if (isClaimingReward || isRewardClaimed) return@LevelCompleteDialog
                     isClaimingReward = true
-
-                    val activity = context as? android.app.Activity
                     adMobManager.showRewardedAd(
                         activity = activity,
                         onRewardEarned = {
@@ -543,22 +561,47 @@ fun BlockMergeGameScreen(
                                     timeSeconds = elapsedSeconds,
                                     score = score,
                                     stars = 3,
-                                    adWatched = true
+                                    adWatched = true,
+                                    isDoubleReward = false
                                 )
+                                soundHaptic.playReward()
                                 isRewardClaimed = true
                                 isClaimingReward = false
                             }
                         },
-                        onAdClosed = {
-                            isClaimingReward = false
-                        },
+                        onAdClosed = { isClaimingReward = false },
                         onAdUnavailable = {
                             isClaimingReward = false
-                            android.widget.Toast.makeText(
-                                context,
-                                "Rewarded ad is not ready. Please try again.",
-                                android.widget.Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Rewarded ad is loading. Please try again.", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                },
+                onClaimDoubleReward = {
+                    if (isClaimingReward || isRewardClaimed) return@LevelCompleteDialog
+                    isClaimingReward = true
+                    adMobManager.showRewardedAd(
+                        activity = activity,
+                        onRewardEarned = {
+                            coroutineScope.launch {
+                                repository.completeLevelAndClaimReward(
+                                    gameId = Constants.GAME_BLOCK_MERGE,
+                                    levelNumber = levelNumber,
+                                    movesUsed = maxMoves - movesLeft,
+                                    timeSeconds = elapsedSeconds,
+                                    score = score * 2,
+                                    stars = 3,
+                                    adWatched = true,
+                                    isDoubleReward = true
+                                )
+                                soundHaptic.playReward()
+                                isRewardClaimed = true
+                                isClaimingReward = false
+                            }
+                        },
+                        onAdClosed = { isClaimingReward = false },
+                        onAdUnavailable = {
+                            isClaimingReward = false
+                            Toast.makeText(context, "Rewarded ad is loading. Please try again.", Toast.LENGTH_SHORT).show()
                         }
                     )
                 },

@@ -19,13 +19,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.MonetizationOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stars
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -236,7 +236,7 @@ fun HomeScreen(
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.TrendingUp,
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                                     contentDescription = null,
                                     tint = RewardGold,
                                     modifier = Modifier.size(16.dp)
@@ -294,15 +294,15 @@ fun HomeScreen(
                         GlassBorderPurple,
                         NeonPurple
                     )
-                    Constants.GAME_COLOR_PATH -> Triple(
+                    Constants.GAME_HEART_MAZE -> Triple(
+                        Brush.horizontalGradient(listOf(Color(0xFFFF0844), Color(0xFFFF4B6E))),
+                        Color(0x40FF2A85),
+                        NeonPink
+                    )
+                    else -> Triple(
                         Brush.horizontalGradient(listOf(Color(0xFF11998E), Color(0xFF38EF7D))),
                         GlassBorderCyan,
                         NeonEmerald
-                    )
-                    else -> Triple(
-                        Brush.horizontalGradient(listOf(Color(0xFFFF0844), Color(0xFFFFB199))),
-                        Color(0x40FF2A85),
-                        NeonPink
                     )
                 }
 

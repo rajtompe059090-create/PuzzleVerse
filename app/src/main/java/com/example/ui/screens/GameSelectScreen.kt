@@ -122,15 +122,15 @@ private fun GameCardItem(
             NeonPurple,
             GlassBorderPurple
         )
-        Constants.GAME_COLOR_PATH -> Triple(
+        Constants.GAME_HEART_MAZE -> Triple(
+            Brush.linearGradient(listOf(Color(0xFFFF0844), Color(0xFFFF4B6E))),
+            NeonPink,
+            Color(0x40FF2A85)
+        )
+        else -> Triple(
             Brush.linearGradient(listOf(Color(0xFF11998E), Color(0xFF38EF7D))),
             NeonEmerald,
             GlassBorderCyan
-        )
-        else -> Triple(
-            Brush.linearGradient(listOf(Color(0xFFFF0844), Color(0xFFFFB199))),
-            NeonPink,
-            Color(0x40FF2A85)
         )
     }
 

@@ -32,8 +32,8 @@ data class Game(
 data class GameLevel(
     val gameId: String,
     val levelNumber: Int,
-    val difficulty: String = "Normal",
-    val rewardAmount: Double = 1.0,
+    val difficulty: String = "Easy",
+    val rewardAmount: Double = 2.0,
     val isUnlocked: Boolean = false,
     val isCompleted: Boolean = false,
     val bestScore: Int = 0,
@@ -77,10 +77,11 @@ data class RewardClaim(
     @PrimaryKey val claimId: String, // "${gameId}_${levelNumber}"
     val gameId: String,
     val levelNumber: Int,
-    val rewardAmount: Double = 1.0,
+    val rewardAmount: Double = 2.0,
     val adWatched: Boolean = false,
     val claimedAt: Long = System.currentTimeMillis(),
-    val transactionId: String
+    val transactionId: String,
+    val claimType: String = "NORMAL" // "NORMAL" or "DOUBLE"
 )
 
 @Entity(
@@ -88,13 +89,13 @@ data class RewardClaim(
     indices = [Index(value = ["requestTimestamp"])]
 )
 data class Withdrawal(
-    @PrimaryKey val id: String,
+    @PrimaryKey val id: String, // PV-YYYYMMDD-XXXXXX
     val amount: Double,
     val payoutMethod: String, // UPI, PAYTM, BANK
     val payoutDetails: String,
     val requestTimestamp: Long = System.currentTimeMillis(),
     val status: String = "PENDING", // PENDING, APPROVED, REJECTED, COMPLETED
-    val remarks: String = "Demo withdrawal request created"
+    val remarks: String = "Request submitted successfully. Payment will be processed manually by admin."
 )
 
 @Entity(tableName = "ad_rewards")

@@ -106,7 +106,7 @@ fun PrivacyPolicyScreen(
                     PolicySection(
                         number = "2",
                         title = "How Information Is Used",
-                        content = "Collected data is used strictly for:\n• Tracking level completion across Arrow Flow, Block Merge, Color Path, and Tile Match.\n• Recording reward ledger entries for first-time level clears.\n• Saving user sound, music, and vibration preferences."
+                        content = "Collected data is used strictly for:\n• Tracking level completion across Arrow Flow, Block Merge, Heart Maze, and Tile Match.\n• Recording reward ledger entries for first-time level clears.\n• Saving user sound, music, and vibration preferences."
                     )
                 }
 

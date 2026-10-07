@@ -1,6 +1,6 @@
 {
   "name": "PuzzleVerse",
-  "description": "Premium 3D animated puzzle gaming app featuring Arrow Flow, Block Merge, Color Path, and Tile Match with real level progression, reward wallet ledger, and AdMob integration.",
+  "description": "Premium 3D animated puzzle gaming app featuring Arrow Flow, Block Merge, Heart Maze, and Tile Match with real level progression, reward wallet ledger, and AdMob integration.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
